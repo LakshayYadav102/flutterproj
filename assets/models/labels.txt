@@ -1,0 +1,5 @@
+0 Plastic Bottle
+1 Paper
+2 Glass Bottle
+3 Organic Waste
+4 E-Waste
