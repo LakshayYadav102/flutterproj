@@ -1,0 +1,2 @@
+C:/Users/Lakshay Yadav/Desktop/mobileapp/green_trail_app/android/app/.cxx/Debug/d1a373y5/x86/CMakeFiles/edit_cache.dir
+C:/Users/Lakshay Yadav/Desktop/mobileapp/green_trail_app/android/app/.cxx/Debug/d1a373y5/x86/CMakeFiles/rebuild_cache.dir
