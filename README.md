@@ -1,16 +1,37 @@
-# green_trail_app
+# 🌿 GreenTrail – Environmental Impact Tracker
 
-A new Flutter project.
+GreenTrail is a mobile application built with Flutter that empowers users to monitor, reduce, and offset their carbon footprint through intelligent tracking, predictions, and actionable insights.
 
-## Getting Started
+---
 
-This project is a starting point for a Flutter application.
+## 📱 Features
 
-A few resources to get you started if this is your first Flutter project:
+- 🚶 **Activity Tracking**: Log transportation, energy, and dietary habits.
+- 📊 **Carbon Footprint Dashboard**: Visual breakdowns of your lifestyle’s carbon impact.
+- 🌳 **Tree Offset Estimator**: Calculates how many trees are needed to offset your lifetime footprint.
+- 📍 **Nearby NGOs**: Find environmental NGOs nearby using map integration.
+- ❤️ **Donate for Reforestation**: Direct donations to plant trees through trusted NGOs.
+---
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+## 🧱 Tech Stack
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+- **Frontend**: Flutter, Dart
+- **State Management**: Provider / Riverpod (if applicable)
+- **Backend**: Node.js, Express (original API)
+- **Database**: MongoDB (via existing REST API)
+- **Maps & Geo**: OpenStreetMap + Overpass API
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+- Flutter SDK
+- Android Studio / Xcode
+- Internet connection for API calls
+
+### Clone the Repository
+
+```bash
+git clone https://github.com/your-username/greentrail-flutter.git
+cd greentrail-flutter
