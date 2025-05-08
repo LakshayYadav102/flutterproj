@@ -9,6 +9,7 @@ const challengeRoutes = require('./routes/challengeRoutes');
 const profileRoutes = require("./routes/profileRoutes");
 const blogRoutes = require("./routes/blogRoutes");
 const leaderboardRoutes = require("./routes/leaderboard");
+const donationRoutes = require('./routes/donationRoutes.');
 
 const app = express();
 
@@ -43,6 +44,8 @@ app.use("/uploads", express.static("uploads"));
 
 // Blog Routes
 app.use("/api/blogs", blogRoutes);
+
+app.use('/api/donations', donationRoutes);
 
 // Leaderboard Routes
 if (leaderboardRoutes) {

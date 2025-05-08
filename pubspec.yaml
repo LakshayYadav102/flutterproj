@@ -10,47 +10,34 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
-  # UI and Icons
+  audioplayers: ^6.1.0
   cupertino_icons: ^1.0.8
-
-  # Network requests
   http: ^1.3.0
-
-  # State management
   provider: ^6.1.4
-
-  # Toast messages
   fluttertoast: ^8.2.1
-
-  # Image picker
   image_picker: ^1.0.7
-
-  # Env variables
   flutter_dotenv: ^5.1.0
   shared_preferences: ^2.5.3
   flutter_secure_storage: ^9.2.4
   fl_chart: ^0.70.2
-
-  # TensorFlow Lite
   camera: ^0.10.5+9
   path_provider: ^2.1.2
   permission_handler: ^11.3.0
-
-
   flutter_svg: ^2.0.7
   animations: ^2.0.7
-
-  # Text-to-Speech
-  flutter_tts: ^3.8.5  # Added missing flutter_tts package
+  flutter_tts: ^3.8.5
   tflite_flutter: ^0.11.0
   image: ^4.1.3
   dio: ^5.8.0+1
+  flutter_launcher_icons: ^0.14.3
+  qr_flutter: ^4.1.0
+  flutter_map: ^7.0.2
+  latlong2: ^0.9.1
+  geolocator: ^12.0.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-
   flutter_lints: ^5.0.0
 
 flutter:
@@ -61,3 +48,21 @@ flutter:
     - assets/config/.env
     - assets/models/model_unquant.tflite
     - assets/models/labels.txt
+    - assets/images/plastic-bottle.png
+    - assets/images/banana-peel.png
+    - assets/images/glass-bottle.png
+    - assets/images/tin-can.png
+    - assets/images/newspaper.png
+    - assets/images/food-waste.png
+    - assets/images/plastic-bag.png
+    - assets/images/styrofoam-cup.png
+    - assets/sounds/collect.mp3
+    - assets/sounds/hit.mp3
+    - assets/sounds/background.mp3
+
+flutter_icons:
+  android: true
+  ios: true
+  image_path: "assets/images/logo.png"
+  adaptive_icon_background: "#ffffff"
+  adaptive_icon_foreground: "assets/images/logoapp.png"

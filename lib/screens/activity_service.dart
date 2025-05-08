@@ -1,9 +1,11 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../models/activity_model.dart';
+import '../api/api_service.dart'; // Import ApiService
 
 class ActivityService {
-  final String baseUrl = 'http://10.0.2.2:5000/api/activities';
+  final String baseUrl =
+      "${ApiService.baseUrl}/api/activities"; // Use dynamic base URL
 
   Future<List<Activity>> fetchUserActivities(String userId) async {
     final response = await http.get(Uri.parse('$baseUrl/user/$userId'));

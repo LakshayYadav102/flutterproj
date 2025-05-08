@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../api/api_service.dart';
 
 class CreateBlogScreen extends StatefulWidget {
   @override
@@ -43,15 +44,15 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
     }
 
     var response = await http.post(
-      Uri.parse("http://10.0.2.2:5000/api/blogs/create"),
+      Uri.parse("${ApiService.baseUrl}/api/blogs/create"),
       headers: {
         "Authorization": "Bearer $token",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
       },
       body: jsonEncode({
         "title": titleController.text,
         "content": contentController.text,
-        "author": userId,  // ✅ Send userId with request
+        "author": userId, // ✅ Send userId with request
         "tags": [],
       }),
     );
@@ -67,13 +68,23 @@ class _CreateBlogScreenState extends State<CreateBlogScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text("Create Blog"), backgroundColor: Colors.deepPurple),
+      appBar: AppBar(
+        title: Text("Create Blog"),
+        backgroundColor: Colors.deepPurple,
+      ),
       body: Padding(
         padding: EdgeInsets.all(16.0),
         child: Column(
           children: [
-            TextField(controller: titleController, decoration: InputDecoration(labelText: "Title")),
-            TextField(controller: contentController, decoration: InputDecoration(labelText: "Content"), maxLines: 5),
+            TextField(
+              controller: titleController,
+              decoration: InputDecoration(labelText: "Title"),
+            ),
+            TextField(
+              controller: contentController,
+              decoration: InputDecoration(labelText: "Content"),
+              maxLines: 5,
+            ),
             ElevatedButton(onPressed: _createBlog, child: Text("Submit")),
           ],
         ),

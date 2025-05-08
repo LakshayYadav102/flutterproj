@@ -1,17 +1,17 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'dart:convert';
+import '../api/api_service.dart'; // Import ApiService for baseUrl
 
 class LeaderboardScreen extends StatefulWidget {
-  const LeaderboardScreen({Key? key}) : super(key: key);
-
   @override
   _LeaderboardScreenState createState() => _LeaderboardScreenState();
 }
 
 class _LeaderboardScreenState extends State<LeaderboardScreen> {
   List<dynamic> leaderboard = [];
-  bool isLoading = true;
+  bool _isLoading = true;
+  String? _error;
 
   @override
   void initState() {
@@ -19,21 +19,32 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     fetchLeaderboard();
   }
 
-  // Function to fetch leaderboard data from the backend
   Future<void> fetchLeaderboard() async {
-    final response = await http.get(Uri.parse('http://10.0.2.2:5000/api/leaderboard'));
+    setState(() {
+      _isLoading = true;
+      _error = null;
+    });
 
-    if (response.statusCode == 200) {
+    try {
+      final response = await http.get(
+        Uri.parse(
+          "${ApiService.baseUrl}/api/leaderboard",
+        ), // Use dynamic base URL
+      );
+
+      if (response.statusCode == 200) {
+        setState(() {
+          leaderboard = json.decode(response.body);
+          _isLoading = false;
+        });
+      } else {
+        throw Exception("Failed to load leaderboard data");
+      }
+    } catch (e) {
       setState(() {
-        leaderboard = json.decode(response.body);
-        isLoading = false;
+        _error = "Error fetching leaderboard: $e";
+        _isLoading = false;
       });
-    } else {
-      // Handle the error case
-      setState(() {
-        isLoading = false;
-      });
-      print('Failed to load leaderboard');
     }
   }
 
@@ -42,26 +53,56 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Leaderboard'),
-        backgroundColor: Colors.deepPurple,
+        backgroundColor: Colors.green,
       ),
-      body: isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : ListView.builder(
-              itemCount: leaderboard.length,
-              itemBuilder: (context, index) {
-                final user = leaderboard[index];
-                return ListTile(
-                  leading: CircleAvatar(
-                    backgroundImage: user['profilePic'] != null
-                        ? NetworkImage(user['profilePic'])
-                        : const AssetImage('assets/default-avatar.png') as ImageProvider,
-                  ),
-                  title: Text(user['username']),
-                  subtitle: Text('Carbon Footprint: ${user['carbonFootprint']} kg'),
-                  trailing: Text('#${index + 1}'),
-                );
-              },
-            ),
+      body:
+          _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _error != null
+              ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      _error!,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                    const SizedBox(height: 10),
+                    ElevatedButton(
+                      onPressed: fetchLeaderboard,
+                      child: const Text("Retry"),
+                    ),
+                  ],
+                ),
+              )
+              : ListView.builder(
+                itemCount: leaderboard.length,
+                itemBuilder: (context, index) {
+                  final user = leaderboard[index];
+                  return ListTile(
+                    leading: CircleAvatar(
+                      backgroundImage:
+                          user['profilePic'] != null
+                              ? NetworkImage(user['profilePic'])
+                              : const AssetImage('assets/default_profile.png')
+                                  as ImageProvider, // Default image
+                      radius: 25,
+                    ),
+                    title: Text(user['username']),
+                    subtitle: Text(
+                      'Carbon Footprint: ${user['totalEmission']} kg CO₂',
+                    ),
+                    trailing: Text(
+                      "#${index + 1}",
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  );
+                },
+              ),
     );
   }
 }

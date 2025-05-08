@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../api/api_service.dart';
 
 class BlogDetailScreen extends StatefulWidget {
   final String blogId;
@@ -29,9 +30,9 @@ class _BlogDetailScreenState extends State<BlogDetailScreen> {
     if (token != null) {
       _fetchBlog();
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Authentication token not found")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Authentication token not found")));
     }
   }
 
@@ -40,7 +41,7 @@ class _BlogDetailScreenState extends State<BlogDetailScreen> {
 
     try {
       final response = await http.get(
-        Uri.parse("http://10.0.2.2:5000/api/blogs/${widget.blogId}"),
+        Uri.parse("${ApiService.baseUrl}/api/blogs/${widget.blogId}"),
         headers: {"Authorization": "Bearer $token"},
       );
 
@@ -50,15 +51,15 @@ class _BlogDetailScreenState extends State<BlogDetailScreen> {
         });
       } else {
         print("Failed to load blog: ${response.statusCode}");
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Failed to load blog")),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Failed to load blog")));
       }
     } catch (e) {
       print("Error fetching blog: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error loading blog")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error loading blog")));
     }
   }
 
@@ -67,7 +68,7 @@ class _BlogDetailScreenState extends State<BlogDetailScreen> {
 
     try {
       final response = await http.put(
-        Uri.parse("http://10.0.2.2:5000/api/blogs/${widget.blogId}/like"),
+        Uri.parse("${ApiService.baseUrl}/api/blogs/${widget.blogId}/like"),
         headers: {"Authorization": "Bearer $token"},
       );
 
@@ -86,10 +87,10 @@ class _BlogDetailScreenState extends State<BlogDetailScreen> {
 
     try {
       final response = await http.post(
-        Uri.parse("http://10.0.2.2:5000/api/blogs/${widget.blogId}/comment"),
+        Uri.parse("${ApiService.baseUrl}/api/blogs/${widget.blogId}/comment"),
         headers: {
           "Authorization": "Bearer $token",
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         },
         body: jsonEncode({"text": commentController.text}),
       );
@@ -99,15 +100,15 @@ class _BlogDetailScreenState extends State<BlogDetailScreen> {
         _fetchBlog();
       } else {
         print("Failed to add comment: ${response.statusCode}");
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Failed to add comment")),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("Failed to add comment")));
       }
     } catch (e) {
       print("Error adding comment: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error adding comment")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Error adding comment")));
     }
   }
 
@@ -115,7 +116,10 @@ class _BlogDetailScreenState extends State<BlogDetailScreen> {
   Widget build(BuildContext context) {
     if (blog == null) {
       return Scaffold(
-        appBar: AppBar(title: Text("Loading..."), backgroundColor: Colors.deepPurple),
+        appBar: AppBar(
+          title: Text("Loading..."),
+          backgroundColor: Colors.deepPurple,
+        ),
         body: Center(child: CircularProgressIndicator()),
       );
     }
@@ -126,13 +130,19 @@ class _BlogDetailScreenState extends State<BlogDetailScreen> {
     List<dynamic> comments = blog!['comments'] is List ? blog!['comments'] : [];
 
     return Scaffold(
-      appBar: AppBar(title: Text(blog!['title'] ?? "Blog"), backgroundColor: Colors.deepPurple),
+      appBar: AppBar(
+        title: Text(blog!['title'] ?? "Blog"),
+        backgroundColor: Colors.deepPurple,
+      ),
       body: Padding(
         padding: EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text("By $author", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            Text(
+              "By $author",
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
             SizedBox(height: 5),
             Text("$views Views", style: TextStyle(color: Colors.grey)),
             Divider(),
@@ -148,23 +158,32 @@ class _BlogDetailScreenState extends State<BlogDetailScreen> {
               ],
             ),
             Divider(),
-            Text("Comments", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            Text(
+              "Comments",
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
             Expanded(
-              child: comments.isNotEmpty
-                  ? ListView.builder(
-                      itemCount: comments.length,
-                      itemBuilder: (context, index) {
-                        var comment = comments[index];
-                        String username = comment is Map && comment['user'] is Map
-                            ? (comment['user']['username'] ?? "Anonymous")
-                            : "Anonymous";
-                        return ListTile(
-                          title: Text(comment is Map ? (comment['text'] ?? "No comment text") : "No comment text"),
-                          subtitle: Text("By $username"),
-                        );
-                      },
-                    )
-                  : Center(child: Text("No comments yet")),
+              child:
+                  comments.isNotEmpty
+                      ? ListView.builder(
+                        itemCount: comments.length,
+                        itemBuilder: (context, index) {
+                          var comment = comments[index];
+                          String username =
+                              comment is Map && comment['user'] is Map
+                                  ? (comment['user']['username'] ?? "Anonymous")
+                                  : "Anonymous";
+                          return ListTile(
+                            title: Text(
+                              comment is Map
+                                  ? (comment['text'] ?? "No comment text")
+                                  : "No comment text",
+                            ),
+                            subtitle: Text("By $username"),
+                          );
+                        },
+                      )
+                      : Center(child: Text("No comments yet")),
             ),
             TextField(
               controller: commentController,
