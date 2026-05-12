@@ -47,5 +47,35 @@ router.get('/user/:userId', async (req, res) => {
     res.status(500).json({ message: 'Error retrieving activities' });
   }
 });
+// GET route to predict emission from the latest activity
+router.get('/predict-latest/:userId', async (req, res) => {
+  const axios = require('axios'); // Import axios here
+  try {
+    const latestActivity = await Activity.findOne({ userId: req.params.userId }).sort({ fromDate: -1 });
+
+    if (!latestActivity) {
+      return res.status(404).json({ error: 'No activity found for this user' });
+    }
+
+    const transport = latestActivity.transportData?.distance || 0;
+    const energy = latestActivity.houseData?.energyUsage || 0;
+    const dietType = latestActivity.lifestyleData?.diet === 'vegetarian' ? 0 : 1;
+
+    const payload = {
+      transportation: transport,
+      energy: energy,
+      dietType: dietType,
+    };
+
+    const response = await axios.post('http://localhost:5000/predict', payload);
+
+    res.status(200).json({ prediction: response.data.predicted_total_emission });
+
+  } catch (err) {
+    console.error('Prediction error:', err);
+    res.status(500).json({ error: 'Prediction failed' });
+  }
+});
+
 
 module.exports = router;

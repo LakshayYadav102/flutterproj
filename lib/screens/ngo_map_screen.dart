@@ -1,393 +1,316 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class NgoMapScreen extends StatefulWidget {
-  const NgoMapScreen({Key? key}) : super(key: key);
+  const NgoMapScreen({super.key});
 
   @override
   _NgoMapScreenState createState() => _NgoMapScreenState();
 }
 
 class _NgoMapScreenState extends State<NgoMapScreen> {
-  LatLng? userLocation;
-  List<Map<String, dynamic>> ngos = [];
-  String error = '';
-  bool isLoading = false;
-  double searchRadius = 20000; // 20 km
+  LatLng? _userLocation;
+  List<Marker> _ngoMarkers = [];
+  bool _isLoading = true;
+  String _error = '';
 
   @override
   void initState() {
     super.initState();
-    // Clear cache on init to force fresh location fetch
-    SharedPreferences.getInstance().then((prefs) {
-      prefs.remove('userLocation');
-      prefs.remove('userLocationTimestamp');
-      print('Cleared cached location');
-      loadCachedLocation();
-    });
+    _getUserLocation();
   }
 
-  Future<void> loadCachedLocation() async {
-    final prefs = await SharedPreferences.getInstance();
-    final cachedLocation = prefs.getString('userLocation');
-    final cachedTimestamp = prefs.getInt('userLocationTimestamp') ?? 0;
+  Future<void> _getUserLocation() async {
+    bool serviceEnabled;
+    LocationPermission permission;
 
-    // Use cached location only if less than 10 minutes old
-    if (cachedLocation != null &&
-        DateTime.now().millisecondsSinceEpoch - cachedTimestamp < 600000) {
-      final loc = jsonDecode(cachedLocation);
-      print('Using cached location: ${loc['lat']}, ${loc['lon']}');
-      setState(() {
-        userLocation = LatLng(loc['lat'], loc['lon']);
-        error = 'Using cached location. Refresh for current location.';
-      });
-      fetchNGOs(loc['lat'], loc['lon'], searchRadius);
-    } else {
-      print('No valid cached location or cache is stale');
-      getUserLocation();
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      _fallbackToLocation("Location services disabled.");
+      return;
     }
-  }
 
-  Future<void> getUserLocation() async {
-    try {
-      // Check if location services are enabled
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        setState(() {
-          error = 'Location services are disabled. Please enable GPS.';
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please enable location services')),
-        );
-        await Geolocator.openLocationSettings();
-        setFallbackLocation();
-        return;
-      }
-
-      // Check permissions
-      LocationPermission permission = await Geolocator.checkPermission();
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          setState(() {
-            error = 'Location permissions denied.';
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Location permissions are required')),
-          );
-          setFallbackLocation();
-          return;
-        }
-      }
-      if (permission == LocationPermission.deniedForever) {
-        setState(() {
-          error =
-              'Location permissions are permanently denied. Please enable them in settings.';
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Please enable location permissions in settings'),
-          ),
-        );
-        await Geolocator.openAppSettings();
-        setFallbackLocation();
+        _fallbackToLocation("Location permission denied.");
         return;
       }
+    }
 
-      // Get position with extended timeout
-      final position = await Geolocator.getCurrentPosition(
+    if (permission == LocationPermission.deniedForever) {
+      _fallbackToLocation("Location permissions permanently denied.");
+      return;
+    }
+
+    try {
+      Position position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 30), // Extended timeout
       );
-      final location = LatLng(position.latitude, position.longitude);
-      print('Current location: ${location.latitude}, ${location.longitude}');
-
       setState(() {
-        userLocation = location;
-        error = ''; // Clear any previous errors
+        _userLocation = LatLng(position.latitude, position.longitude);
       });
-
-      // Cache the location
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(
-        'userLocation',
-        jsonEncode({'lat': location.latitude, 'lon': location.longitude}),
-      );
-      await prefs.setInt(
-        'userLocationTimestamp',
-        DateTime.now().millisecondsSinceEpoch,
-      );
-
-      fetchNGOs(location.latitude, location.longitude, searchRadius);
+      _fetchNGOs(_userLocation!.latitude, _userLocation!.longitude);
     } catch (e) {
-      print('Error getting location: $e');
-      setState(() {
-        error = 'Failed to get location: $e';
-      });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to get location: $e')));
-      setFallbackLocation();
+      _fallbackToLocation("Failed to get current location.");
     }
   }
 
-  Future<void> setFallbackLocation() async {
-    const fallbackLocation = LatLng(28.6139, 77.209); // Delhi
-    print(
-      'Using fallback location: Delhi (${fallbackLocation.latitude}, ${fallbackLocation.longitude})',
-    );
+  void _fallbackToLocation(String message) {
     setState(() {
-      userLocation = fallbackLocation;
-      error =
-          error.isEmpty
-              ? 'Unable to get location. Using Delhi as fallback.'
-              : error;
+      _error = "$message Using Delhi as fallback.";
+      _userLocation = const LatLng(28.6139, 77.209);
     });
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(
-      'userLocation',
-      jsonEncode({
-        'lat': fallbackLocation.latitude,
-        'lon': fallbackLocation.longitude,
-      }),
-    );
-    await prefs.setInt(
-      'userLocationTimestamp',
-      DateTime.now().millisecondsSinceEpoch,
-    );
-    fetchNGOs(
-      fallbackLocation.latitude,
-      fallbackLocation.longitude,
-      searchRadius,
-    );
+    _fetchNGOs(_userLocation!.latitude, _userLocation!.longitude);
   }
 
-  Future<void> fetchNGOs(double lat, double lon, double radius) async {
-    setState(() {
-      isLoading = true;
-      error = error.isEmpty ? '' : error; // Preserve existing error
-    });
+  Future<void> _fetchNGOs(double lat, double lon) async {
+    setState(() => _isLoading = true);
+    int radius = 20000; // 20km
+
     try {
-      final query = '''
+      String query = """
         [out:json];
         (
-          node["office"="ngo"](around:$radius,$lat,$lon);
-          node["amenity"="ngo"](around:$radius,$lat,$lon);
+          node["office"="ngo"]["description"~"tree|plant|environment|conservation",i](around:$radius,$lat,$lon);
+          node["environment"="conservation"](around:$radius,$lat,$lon);
           node["name"~"Tree|Plant|Environment|Green|Conservation|Eco|Nature",i](around:$radius,$lat,$lon);
-          node["description"~"tree|plant|environment|conservation",i](around:$radius,$lat,$lon);
         );
         out center;
-      ''';
+      """;
+
       final response = await http.get(
         Uri.parse(
-          'https://overpass-api.de/api/interpreter?data=${Uri.encodeQueryComponent(query)}',
+          "https://overpass-api.de/api/interpreter?data=${Uri.encodeComponent(query)}",
         ),
       );
-      print('Overpass API Response: ${response.statusCode} ${response.body}');
 
-      if (response.statusCode != 200) {
-        throw Exception('Overpass API failed: ${response.statusCode}');
-      }
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final elements = data['elements'] as List;
 
-      final data = jsonDecode(response.body);
-      final ngoList =
-          (data['elements'] as List)
-              .where((e) => e['lat'] != null && e['lon'] != null)
-              .where(
-                (e) =>
-                    (e['tags']['office'] == 'ngo' ||
-                        e['tags']['amenity'] == 'ngo') ||
-                    RegExp(
-                      r'tree|plant|environment|green|conservation|eco|nature',
-                      caseSensitive: false,
-                    ).hasMatch(
-                      e['tags']['name'] ?? e['tags']['description'] ?? '',
-                    ),
-              )
-              .map(
-                (e) => {
-                  'id': e['id'],
-                  'name':
-                      e['tags']['name'] ?? e['tags']['description'] ?? 'NGO',
-                  'lat': e['lat'],
-                  'lon': e['lon'],
-                },
-              )
-              .toList();
+        List<Marker> markers = [];
 
-      setState(() {
-        if (ngoList.isEmpty) {
-          if (radius < 50000) {
-            searchRadius = 50000;
-            error =
-                error.isEmpty
-                    ? 'No NGOs found within 20 km. Expanding search to 50 km...'
-                    : error;
-            fetchNGOs(lat, lon, searchRadius);
-          } else {
-            error = error.isEmpty ? 'No NGOs found within 50 km.' : error;
-            ngos = [];
+        // Add User Marker
+        markers.add(
+          Marker(
+            point: LatLng(lat, lon),
+            width: 60,
+            height: 60,
+            child: Column(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: Colors.blue[600],
+                    shape: BoxShape.circle,
+                    border: Border.all(color: Colors.white, width: 3),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.3),
+                        blurRadius: 6,
+                      ),
+                    ],
+                  ),
+                  child: const Icon(
+                    Icons.person,
+                    color: Colors.white,
+                    size: 20,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+
+        for (var e in elements) {
+          if (e['lat'] != null && e['lon'] != null) {
+            String name =
+                e['tags']?['name'] ??
+                e['tags']?['description'] ??
+                'Environmental NGO';
+            markers.add(
+              Marker(
+                point: LatLng(e['lat'], e['lon']),
+                width: 60,
+                height: 60,
+                child: GestureDetector(
+                  onTap: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          name,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        behavior: SnackBarBehavior.floating,
+                        backgroundColor: Colors.green[800],
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    );
+                  },
+                  child: Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: Colors.green[600],
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 2),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.2),
+                              blurRadius: 4,
+                            ),
+                          ],
+                        ),
+                        child: const Icon(
+                          Icons.nature,
+                          color: Colors.white,
+                          size: 18,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
           }
-        } else {
-          ngos = ngoList;
-          error = error.isEmpty ? '' : error; // Preserve location error
         }
-        isLoading = false;
-      });
+
+        setState(() {
+          _ngoMarkers = markers;
+          if (markers.length == 1) {
+            _error = "No environmental NGOs found within 20km.";
+          } else {
+            _error = ''; // Clear error if NGOs found
+          }
+        });
+      }
     } catch (e) {
-      print('FetchNGOs Error: $e');
-      setState(() {
-        error = error.isEmpty ? 'Failed to load NGOs: $e' : error;
-        ngos = [];
-        isLoading = false;
-      });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Failed to load NGOs: $e')));
+      setState(() => _error = "Failed to load NGOs.");
+    } finally {
+      setState(() => _isLoading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDarkMode = theme.brightness == Brightness.dark;
+    // Return Stack directly so it embeds perfectly inside the TabBarView
+    return Stack(
+      children: [
+        _userLocation == null
+            ? const Center(
+              child: Text(
+                "Getting location...",
+                style: TextStyle(color: Colors.grey),
+              ),
+            )
+            : FlutterMap(
+              options: MapOptions(
+                initialCenter: _userLocation!,
+                initialZoom: 13.0,
+              ),
+              children: [
+                TileLayer(
+                  urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  userAgentPackageName: 'com.greenverse.app',
+                ),
+                MarkerLayer(markers: _ngoMarkers),
+              ],
+            ),
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('NGO Map'),
-        backgroundColor:
-            isDarkMode ? Colors.deepPurple[800] : Colors.deepPurple,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () {
-              print('Refresh triggered');
-              getUserLocation(); // Always fetch fresh location on refresh
-            },
-            tooltip: 'Refresh Map',
+        // Floating Loading Indicator
+        if (_isLoading)
+          Positioned(
+            top: 20,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 10,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(30),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 10,
+                    ),
+                  ],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(
+                      width: 15,
+                      height: 15,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.green,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      "Scanning for NGOs...",
+                      style: TextStyle(
+                        color: Colors.green[800],
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
-        ],
-      ),
-      body:
-          userLocation == null
-              ? const Center(child: CircularProgressIndicator())
-              : Column(
+
+        // Floating Error/Info Pill
+        if (_error.isNotEmpty && !_isLoading)
+          Positioned(
+            bottom: 20,
+            left: 20,
+            right: 20,
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(15),
+                border: Border.all(color: Colors.orange.shade200),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 10,
+                    offset: const Offset(0, 5),
+                  ),
+                ],
+              ),
+              child: Row(
                 children: [
-                  if (error.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.all(8.0),
-                      child: Text(
-                        error,
-                        style: const TextStyle(color: Colors.red),
+                  const Icon(Icons.info_outline, color: Colors.orange),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      _error,
+                      style: const TextStyle(
+                        color: Colors.black87,
+                        fontWeight: FontWeight.w500,
                       ),
-                    ),
-                  if (isLoading)
-                    const Center(child: CircularProgressIndicator())
-                  else
-                    Expanded(
-                      child: FlutterMap(
-                        options: MapOptions(
-                          initialCenter: userLocation!,
-                          initialZoom: 13,
-                        ),
-                        children: [
-                          TileLayer(
-                            urlTemplate:
-                                'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                            subdomains: const ['a', 'b', 'c'],
-                          ),
-                          MarkerLayer(
-                            markers: [
-                              Marker(
-                                point: userLocation!,
-                                width: 40,
-                                height: 40,
-                                child: const Icon(
-                                  Icons.person_pin_circle,
-                                  color: Colors.blue,
-                                  size: 40,
-                                ),
-                              ),
-                              ...ngos.map(
-                                (ngo) => Marker(
-                                  point: LatLng(ngo['lat'], ngo['lon']),
-                                  width: 40,
-                                  height: 40,
-                                  child: GestureDetector(
-                                    onTap:
-                                        () => showDialog(
-                                          context: context,
-                                          builder:
-                                              (ctx) => AlertDialog(
-                                                title: Text(ngo['name']),
-                                                content: const Text(
-                                                  'Environmental Organization',
-                                                ),
-                                                actions: [
-                                                  TextButton(
-                                                    onPressed:
-                                                        () =>
-                                                            Navigator.pop(ctx),
-                                                    child: const Text('Close'),
-                                                  ),
-                                                ],
-                                              ),
-                                        ),
-                                    child: const Icon(
-                                      Icons.location_pin,
-                                      color: Colors.green,
-                                      size: 40,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      children: [
-                        const Text(
-                          'Explore Our NGO Partners',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'The map showcases our network of NGOs dedicated to tree planting and reforestation.',
-                        ),
-                        ListTile(
-                          leading: const Icon(Icons.location_on),
-                          title: const Text('NGO Locations'),
-                          subtitle: const Text('Global and local partners.'),
-                        ),
-                        ListTile(
-                          leading: const Icon(Icons.park),
-                          title: const Text('Project Sites'),
-                          subtitle: const Text('Active planting areas.'),
-                        ),
-                        ListTile(
-                          leading: const Icon(Icons.eco),
-                          title: const Text('Impact Areas'),
-                          subtitle: const Text(
-                            'Regions benefiting from your donations.',
-                          ),
-                        ),
-                      ],
                     ),
                   ),
                 ],
               ),
+            ),
+          ),
+      ],
     );
   }
 }

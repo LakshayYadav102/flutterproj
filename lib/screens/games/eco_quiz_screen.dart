@@ -14,7 +14,7 @@ class QuizQuestion {
 }
 
 class EcoQuizScreen extends StatefulWidget {
-  const EcoQuizScreen({Key? key}) : super(key: key);
+  const EcoQuizScreen({super.key});
 
   @override
   _EcoQuizScreenState createState() => _EcoQuizScreenState();
@@ -154,7 +154,7 @@ class _EcoQuizScreenState extends State<EcoQuizScreen> {
                             child: Text(option),
                           ),
                         );
-                      }).toList(),
+                      }),
                     ],
                   ),
         ),

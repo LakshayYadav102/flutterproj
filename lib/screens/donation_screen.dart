@@ -1,506 +1,607 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:qr_flutter/qr_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:intl/intl.dart';
 import '../api/api_service.dart';
-import 'ngo_map_screen.dart'; // Ensure this import is correct
+import 'ngo_map_screen.dart';
 
 class DonationScreen extends StatefulWidget {
-  final String userId;
-
-  const DonationScreen({Key? key, required this.userId}) : super(key: key);
+  const DonationScreen({super.key});
 
   @override
   _DonationScreenState createState() => _DonationScreenState();
 }
 
 class _DonationScreenState extends State<DonationScreen> {
-  double lifetimeCarbon = 0;
-  int treesNeeded = 0;
-  int treesPlanted = 0;
-  String amount = '';
-  String transactionId = '';
-  String message = '';
-  List<dynamic> donationHistory = [];
-  bool isLoading = true;
-  String error = '';
-  String activeSection = 'overview';
+  bool _isLoading = true;
+  String _error = '';
+  String? _userId;
+
+  // Stats
+  String _lifetimeCarbon = "0";
+  int _treesNeeded = 0;
+  int _treesPlanted = 0;
+  List<dynamic> _donationHistory = [];
+
+  // Form
+  final _amountController = TextEditingController();
+  final _transactionController = TextEditingController();
+  bool _isSubmitting = false;
 
   @override
   void initState() {
     super.initState();
-    fetchData();
+    _fetchData();
   }
 
-  Future<void> fetchData() async {
-    setState(() {
-      isLoading = true;
-      error = '';
-    });
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('token');
-      if (token == null) {
-        setState(() {
-          error = 'User not logged in';
-          isLoading = false;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please log in to continue')),
-        );
-        return;
-      }
+  Future<void> _fetchData() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    _userId = prefs.getString('userId');
 
-      final headers = {'Authorization': 'Bearer $token'};
-      final baseUrl = ApiService.baseUrl;
-
-      final responses = await Future.wait([
-        http.get(
-          Uri.parse('$baseUrl/api/donations/lifetime-carbon/${widget.userId}'),
-          headers: headers,
-        ),
-        http.get(
-          Uri.parse('$baseUrl/api/donations/trees-needed/${widget.userId}'),
-          headers: headers,
-        ),
-        http.get(
-          Uri.parse('$baseUrl/api/donations/history/${widget.userId}'),
-          headers: headers,
-        ),
-      ]);
-
+    if (_userId == null) {
       setState(() {
-        lifetimeCarbon =
-            jsonDecode(responses[0].body)['lifetimeCarbon']?.toDouble() ?? 0;
-        treesNeeded = jsonDecode(responses[1].body)['treesNeeded'] ?? 0;
-        donationHistory = jsonDecode(responses[2].body)['donations'] ?? [];
-        treesPlanted = donationHistory.fold(
-          0,
-          (sum, d) => sum + (d['treesSponsored'] as int? ?? 0),
-        );
-        isLoading = false;
+        _error = "User not logged in";
+        _isLoading = false;
       });
-    } catch (e) {
-      setState(() {
-        error = 'Failed to load data. Please try again later.';
-        isLoading = false;
-      });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Failed to load data')));
-    }
-  }
-
-  Future<void> submitTransaction() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('token');
-    if (token == null ||
-        amount.isEmpty ||
-        double.tryParse(amount) == null ||
-        double.parse(amount) < 100 ||
-        transactionId.isEmpty) {
-      setState(() {
-        message =
-            'Please enter a valid amount (minimum ₹100) and transaction ID';
-      });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Invalid input')));
       return;
     }
 
     try {
-      final response = await http.post(
-        Uri.parse('${ApiService.baseUrl}/api/donations/submit-transaction'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'userId': widget.userId,
-          'amount': double.parse(amount),
-          'transactionId': transactionId,
-        }),
+      final carbonRes = await http.get(
+        Uri.parse(
+          '${ApiService.baseUrl}/api/donations/lifetime-carbon/$_userId',
+        ),
+      );
+      final treesRes = await http.get(
+        Uri.parse('${ApiService.baseUrl}/api/donations/trees-needed/$_userId'),
+      );
+      final historyRes = await http.get(
+        Uri.parse('${ApiService.baseUrl}/api/donations/history/$_userId'),
       );
 
-      if (response.statusCode == 201) {
-        setState(() {
-          message =
-              jsonDecode(response.body)['message'] ??
-              '🎉 Transaction submitted successfully!';
-          amount = '';
-          transactionId = '';
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Transaction submitted successfully')),
-        );
-        await fetchData(); // Refresh data
-      } else {
-        setState(() {
-          message =
-              jsonDecode(response.body)['error'] ??
-              '❌ Transaction submission failed.';
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Transaction submission failed')),
+      int calculatedTrees = 0;
+      List<dynamic> history = [];
+
+      if (historyRes.statusCode == 200) {
+        history = jsonDecode(historyRes.body)['donations'] ?? [];
+        for (var d in history) {
+          calculatedTrees += (d['treesSponsored'] as num?)?.toInt() ?? 0;
+        }
+        // Sort history newest first
+        history.sort(
+          (a, b) =>
+              DateTime.parse(b['date']).compareTo(DateTime.parse(a['date'])),
         );
       }
+
+      setState(() {
+        _lifetimeCarbon =
+            jsonDecode(carbonRes.body)['lifetimeCarbon']?.toString() ?? "0";
+        _treesNeeded = jsonDecode(treesRes.body)['treesNeeded'] ?? 0;
+        _donationHistory = history;
+        _treesPlanted = calculatedTrees;
+        _isLoading = false;
+      });
     } catch (e) {
       setState(() {
-        message = '❌ Transaction submission failed.';
+        _error = "Failed to load data";
+        _isLoading = false;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Transaction submission failed')),
-      );
     }
   }
 
-  int calculateTreesFromAmount() {
-    return double.tryParse(amount) != null
-        ? (double.parse(amount) / 100).floor()
-        : 0;
+  Future<void> _submitTransaction() async {
+    double? amount = double.tryParse(_amountController.text);
+    String txId = _transactionController.text.trim();
+
+    if (amount == null || amount < 100 || txId.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            "Please enter valid amount (Min ₹100) and Transaction ID",
+          ),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+
+    try {
+      final response = await http.post(
+        Uri.parse('${ApiService.baseUrl}/api/donations/submit-transaction'),
+        headers: {"Content-Type": "application/json"},
+        body: jsonEncode({
+          "userId": _userId,
+          "amount": amount,
+          "transactionId": txId,
+        }),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("🎉 Transaction submitted successfully!"),
+            backgroundColor: Colors.green,
+          ),
+        );
+        _amountController.clear();
+        _transactionController.clear();
+        _fetchData();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              jsonDecode(response.body)['error'] ?? "Failed to submit",
+            ),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Network error."),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    } finally {
+      setState(() => _isSubmitting = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDarkMode = theme.brightness == Brightness.dark;
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Donation Dashboard'),
-        backgroundColor:
-            isDarkMode ? Colors.deepPurple[800] : Colors.deepPurple,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: fetchData,
-            tooltip: 'Refresh Data',
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF4F7F6),
+        body: const Center(
+          child: CircularProgressIndicator(color: Colors.green),
+        ),
+      );
+    }
+    if (_error.isNotEmpty) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF4F7F6),
+        body: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.error_outline, color: Colors.red, size: 50),
+              const SizedBox(height: 16),
+              Text(
+                _error,
+                style: const TextStyle(color: Colors.red, fontSize: 16),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _fetchData,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green[700],
+                ),
+                child: const Text(
+                  "Retry",
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
+      );
+    }
+
+    return DefaultTabController(
+      length: 4,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF4F7F6),
+        appBar: AppBar(
+          title: const Text(
+            "Restoration Hub",
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
+          backgroundColor: Colors.green[800],
+          iconTheme: const IconThemeData(color: Colors.white),
+          elevation: 0,
+          bottom: const TabBar(
+            isScrollable: true,
+            indicatorColor: Colors.white,
+            indicatorWeight: 3,
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.white60,
+            tabs: [
+              Tab(icon: Icon(Icons.dashboard), text: "Overview"),
+              Tab(icon: Icon(Icons.qr_code_scanner), text: "Donate"),
+              Tab(icon: Icon(Icons.history), text: "History"),
+              Tab(icon: Icon(Icons.map), text: "NGO Map"),
+            ],
+          ),
+        ),
+        body: TabBarView(
+          physics:
+              const NeverScrollableScrollPhysics(), // Prevents map swiping conflict
+          children: [
+            _buildOverviewTab(),
+            _buildDonateTab(),
+            _buildHistoryTab(),
+            const NgoMapScreen(),
+          ],
+        ),
       ),
-      body:
-          isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : Row(
+    );
+  }
+
+  Widget _buildOverviewTab() {
+    double progress = _treesNeeded > 0 ? (_treesPlanted / _treesNeeded) : 0;
+    if (progress > 1.0) progress = 1.0;
+
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Card(
+            elevation: 2,
+            shadowColor: Colors.grey.withOpacity(0.2),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
                 children: [
-                  // Sidebar
-                  Container(
-                    width:
-                        MediaQuery.of(context).size.width *
-                        0.3, // Responsive width
-                    color: isDarkMode ? Colors.grey[900] : Colors.grey[100],
-                    child: ListView(
-                      children: [
-                        ListTile(
-                          leading: const Icon(Icons.dashboard),
-                          title: const Text('Overview'),
-                          selected: activeSection == 'overview',
-                          onTap:
-                              () => setState(() => activeSection = 'overview'),
-                        ),
-                        ListTile(
-                          leading: const Icon(Icons.monetization_on),
-                          title: const Text('Donate'),
-                          selected: activeSection == 'donate',
-                          onTap: () => setState(() => activeSection = 'donate'),
-                        ),
-                        ListTile(
-                          leading: const Icon(Icons.history),
-                          title: const Text('History'),
-                          selected: activeSection == 'history',
-                          onTap:
-                              () => setState(() => activeSection = 'history'),
-                        ),
-                        ListTile(
-                          leading: const Icon(Icons.map),
-                          title: const Text('NGO Map'),
-                          selected: activeSection == 'map',
-                          onTap: () => setState(() => activeSection = 'map'),
-                        ),
-                      ],
+                  Text(
+                    "Your Offset Progress",
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.green[900],
                     ),
                   ),
-                  // Main Content
-                  Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        children: [
-                          if (activeSection == 'overview') ...[
-                            _buildOverviewCard(),
-                          ],
-                          if (activeSection == 'donate') ...[
-                            _buildDonationCard(),
-                            const SizedBox(height: 16),
-                            _buildWhyDonateCard(),
-                          ],
-                          if (activeSection == 'history') ...[
-                            _buildHistoryCard(),
-                          ],
-                          if (activeSection == 'map') ...[
-                            Card(
-                              elevation: 5,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: Column(
-                                  children: [
-                                    const Text(
-                                      'Explore Our NGO Partners',
-                                      style: TextStyle(
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 16),
-                                    ElevatedButton(
-                                      onPressed:
-                                          () => Navigator.push(
-                                            context,
-                                            MaterialPageRoute(
-                                              builder:
-                                                  (context) =>
-                                                      const NgoMapScreen(),
-                                            ),
-                                          ),
-                                      child: const Text('View NGO Map'),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ],
-                          const SizedBox(height: 16),
-                          _buildCalculationCard(),
-                        ],
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _statCol(
+                        Icons.co2,
+                        "Footprint",
+                        "$_lifetimeCarbon kg",
+                        Colors.red[600]!,
                       ),
+                      Container(height: 40, width: 1, color: Colors.grey[300]),
+                      _statCol(
+                        Icons.flag,
+                        "Goal",
+                        "$_treesNeeded Trees",
+                        Colors.orange[600]!,
+                      ),
+                      Container(height: 40, width: 1, color: Colors.grey[300]),
+                      _statCol(
+                        Icons.park,
+                        "Planted",
+                        "$_treesPlanted Trees",
+                        Colors.green[600]!,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 35),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 12,
+                      backgroundColor: Colors.grey[200],
+                      color: Colors.green[600],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    "${(progress * 100).toInt()}% of your lifetime footprint offset",
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey,
                     ),
                   ),
                 ],
               ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          Card(
+            elevation: 0,
+            color: Colors.green[50],
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+              side: BorderSide(color: Colors.green.shade200),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.calculate, color: Colors.green[700]),
+                      const SizedBox(width: 10),
+                      Text(
+                        "The Math Behind The Offset",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                          color: Colors.green[900],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    "On average, a mature tree absorbs roughly 21 kg of CO₂ per year. We calculate your required offset by dividing your total footprint by this absorption rate.",
+                    style: TextStyle(height: 1.5, color: Colors.black87),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
-  Widget _buildOverviewCard() {
-    return Card(
-      elevation: 5,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            const Text(
-              'Offset Your Carbon Footprint',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Lifetime Carbon Footprint: ${lifetimeCarbon.toStringAsFixed(2)} kg CO₂',
-            ),
-            Text('Trees Needed to Offset: $treesNeeded'),
-            const SizedBox(height: 16),
-            LinearProgressIndicator(
-              value: treesNeeded > 0 ? treesPlanted / treesNeeded : 0,
-              backgroundColor: Colors.grey[300],
-              color: Colors.green,
-            ),
-            Text(
-              '${treesNeeded > 0 ? ((treesPlanted / treesNeeded) * 100).round() : 0}% Offset',
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () => setState(() => activeSection = 'donate'),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-              child: const Text('Make a Donation'),
-            ),
-          ],
+  Widget _statCol(IconData icon, String label, String value, Color color) {
+    return Column(
+      children: [
+        Icon(icon, color: color, size: 28),
+        const SizedBox(height: 8),
+        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            color: color,
+            fontWeight: FontWeight.bold,
+            fontSize: 15,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDonateTab() {
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.all(16),
+      child: Card(
+        elevation: 2,
+        shadowColor: Colors.grey.withOpacity(0.2),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.nature_people, color: Colors.green[700], size: 28),
+                  const SizedBox(width: 10),
+                  const Text(
+                    "Plant a Tree",
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+              TextField(
+                controller: _amountController,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: "Donation Amount (₹)",
+                  hintText: "Minimum ₹100",
+                  prefixIcon: const Icon(Icons.currency_rupee),
+                  filled: true,
+                  fillColor: Colors.grey[50],
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(15),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+                onChanged: (val) => setState(() {}),
+              ),
+              const SizedBox(height: 24),
+
+              if (_amountController.text.isNotEmpty &&
+                  (double.tryParse(_amountController.text) ?? 0) >= 100)
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.green.shade200, width: 2),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.green.withOpacity(0.1),
+                        blurRadius: 10,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        "Scan to Fund",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
+                          color: Colors.green[800],
+                        ),
+                      ),
+                      const SizedBox(height: 15),
+                      QrImageView(
+                        data:
+                            "upi://pay?pa=lakshay9718@okhdfcbank&pn=Lakshay&am=${_amountController.text}&cu=INR",
+                        version: QrVersions.auto,
+                        size: 200.0,
+                        backgroundColor: Colors.white,
+                      ),
+                      const SizedBox(height: 15),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.grey[100],
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Text(
+                          "UPI: lakshay9718@okhdfcbank",
+                          style: TextStyle(
+                            color: Colors.black87,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 24),
+
+              TextField(
+                controller: _transactionController,
+                decoration: InputDecoration(
+                  labelText: "Transaction ID / UTR",
+                  filled: true,
+                  fillColor: Colors.grey[50],
+                  prefixIcon: const Icon(Icons.receipt_long),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(15),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              SizedBox(
+                height: 55,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green[700],
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    elevation: 0,
+                  ),
+                  onPressed: _isSubmitting ? null : _submitTransaction,
+                  child:
+                      _isSubmitting
+                          ? const SizedBox(
+                            height: 24,
+                            width: 24,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                          : const Text(
+                            "Verify Transaction",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildDonationCard() {
-    return Card(
-      elevation: 5,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
+  Widget _buildHistoryTab() {
+    if (_donationHistory.isEmpty) {
+      return Center(
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            Icon(Icons.volunteer_activism, size: 60, color: Colors.green[200]),
+            const SizedBox(height: 16),
             const Text(
-              'Donate to Offset',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              "No donations found.\nStart your restoration journey!",
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey, fontSize: 16),
             ),
-            const SizedBox(height: 16),
-            TextField(
-              decoration: const InputDecoration(
-                labelText: 'Donation Amount (₹)',
-                hintText: 'Enter amount (minimum ₹100)',
-                border: OutlineInputBorder(),
+          ],
+        ),
+      );
+    }
+    return ListView.builder(
+      physics: const BouncingScrollPhysics(),
+      padding: const EdgeInsets.all(16),
+      itemCount: _donationHistory.length,
+      itemBuilder: (context, index) {
+        final d = _donationHistory[index];
+        final date = DateTime.parse(d['date']).toLocal();
+        final formattedDate = DateFormat('MMM dd, yyyy • hh:mm a').format(date);
+
+        return Card(
+          margin: const EdgeInsets.only(bottom: 12),
+          elevation: 1,
+          shadowColor: Colors.grey.withOpacity(0.1),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: ListTile(
+              leading: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.green[50],
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(Icons.park, color: Colors.green[700]),
               ),
-              keyboardType: TextInputType.number,
-              onChanged: (value) => setState(() => amount = value),
-            ),
-            if (double.tryParse(amount) != null &&
-                double.parse(amount) >= 100) ...[
-              const SizedBox(height: 16),
-              const Text('Scan to Pay', style: TextStyle(fontSize: 16)),
-              QrImageView(
-                data:
-                    'upi://pay?pa=lakshay9718@okhdfcbank&pn=Lakshay&am=$amount&cu=INR',
-                size: 200,
+              title: Text(
+                "Sponsored ${d['treesSponsored'] ?? 0} Trees",
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                ),
               ),
-              const Text('UPI ID: lakshay9718@okhdfcbank'),
-            ],
-            const SizedBox(height: 16),
-            TextField(
-              decoration: const InputDecoration(
-                labelText: 'Transaction ID',
-                hintText: 'Enter transaction ID',
-                border: OutlineInputBorder(),
+              subtitle: Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "Txn: ${d['transactionId'] ?? 'N/A'}",
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      formattedDate,
+                      style: TextStyle(color: Colors.grey[500], fontSize: 12),
+                    ),
+                  ],
+                ),
               ),
-              onChanged: (value) => setState(() => transactionId = value),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Your ₹${amount.isEmpty ? '0' : amount} donation will plant approximately ${calculateTreesFromAmount()} trees!',
-              style: const TextStyle(fontStyle: FontStyle.italic),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed:
-                  double.tryParse(amount) != null &&
-                          double.parse(amount) >= 100 &&
-                          transactionId.isNotEmpty
-                      ? submitTransaction
-                      : null,
-              child: const Text('Submit Transaction'),
-            ),
-            if (message.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              Text(
-                message,
+              trailing: Text(
+                "₹${d['amount']}",
                 style: TextStyle(
-                  color:
-                      message.contains('successfully')
-                          ? Colors.green
-                          : Colors.red,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                  color: Colors.green[800],
                 ),
               ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildWhyDonateCard() {
-    return Card(
-      elevation: 5,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            const Text(
-              'Why Donate?',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              isThreeLine: true,
             ),
-            const SizedBox(height: 16),
-            const Text(
-              'Your donations fund initiatives to combat climate change and promote sustainability:',
-            ),
-            const SizedBox(height: 8),
-            ListTile(
-              leading: const Icon(Icons.park),
-              title: const Text('Tree Planting (70%)'),
-              subtitle: const Text(
-                'Funds planting in deforested areas and urban spaces.',
-              ),
-            ),
-            ListTile(
-              leading: const Icon(Icons.forest),
-              title: const Text('Reforestation (20%)'),
-              subtitle: const Text('Restores ecosystems with verified NGOs.'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.settings),
-              title: const Text('Operational Costs (10%)'),
-              subtitle: const Text('Ensures transparency and monitoring.'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHistoryCard() {
-    return Card(
-      elevation: 5,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            const Text(
-              'Your Donation History',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            donationHistory.isEmpty
-                ? const Text('No donations yet. Start your eco journey today!')
-                : ListView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: donationHistory.length,
-                  itemBuilder: (context, index) {
-                    final donation = donationHistory[index];
-                    return ListTile(
-                      leading: const Icon(Icons.monetization_on),
-                      title: Text(
-                        '₹${donation['amount']} on ${DateTime.parse(donation['date']).toLocal().toString().split(' ')[0]}',
-                      ),
-                      subtitle: Text(
-                        'Transaction ID: ${donation['transactionId'] ?? 'N/A'}',
-                      ),
-                    );
-                  },
-                ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCalculationCard() {
-    return Card(
-      elevation: 5,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            const Text(
-              'How We Calculate Trees Needed',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Your Lifetime Carbon Footprint: ${lifetimeCarbon.toStringAsFixed(2)} kg CO₂',
-            ),
-            Text(
-              'We estimate trees needed using: Trees = Carbon Footprint ÷ 21 kg CO₂/tree',
-            ),
-            Text(
-              'For you: ${lifetimeCarbon.toStringAsFixed(2)} kg ÷ 21 ≈ $treesNeeded trees',
-            ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 }

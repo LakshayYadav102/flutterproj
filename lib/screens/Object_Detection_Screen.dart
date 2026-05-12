@@ -10,6 +10,8 @@ import 'dart:typed_data';
 import 'dart:math';
 
 class ObjectDetectionScreen extends StatefulWidget {
+  const ObjectDetectionScreen({super.key});
+
   @override
   _ObjectDetectionScreenState createState() => _ObjectDetectionScreenState();
 }
@@ -20,7 +22,7 @@ class _ObjectDetectionScreenState extends State<ObjectDetectionScreen> {
   String _prediction = "No image analyzed";
   String _ecoTip = "";
   XFile? _imageFile;
-  FlutterTts _tts = FlutterTts();
+  final FlutterTts _tts = FlutterTts();
   Interpreter? _interpreter;
   List<String> _labels = [];
 

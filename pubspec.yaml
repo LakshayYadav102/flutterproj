@@ -34,6 +34,13 @@ dependencies:
   flutter_map: ^7.0.2
   latlong2: ^0.9.1
   geolocator: ^12.0.0
+  # --- NEW PACKAGES FROM RECENT MIGRATION ---
+  socket_io_client: ^2.0.3     # For live Food & Carpool Chat
+  video_player: ^2.8.2         # For EcoLearn Reels
+  flutter_html: ^3.0.0         # For Blog Details Rich Text
+  webview_flutter: ^4.4.2      # For GreenVerse Chatbot
+  url_launcher: ^6.3.2
+  http_parser: ^4.0.2
 
 dev_dependencies:
   flutter_test:

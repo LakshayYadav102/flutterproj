@@ -89,41 +89,65 @@ router.post("/update-progress", async (req, res) => {
   }
 });
 
-// 🔹 Get leaderboard (Ranked by Least CO₂ in the Last 7 Days)
-router.get("/leaderboard", async (req, res) => {
-  try {
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+// 🔹 Get leaderboard (Ranked by Least CO₂ - Excluding 0 from top ranks)
+router.get("/leaderboard/:challengeId", async (req, res) => {
+    const { challengeId } = req.params;
+  
+    try {
+      const participants = await UserChallenge.find({ challengeId }).populate("userId", "username");
+  
+      if (!participants.length) {
+        return res.json([]);
+      }
+  
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  
+      const userFootprints = await Promise.all(
+        participants.map(async (participant) => {
+          if (!participant.userId) return null;
+  
+          const totalFootprint = await Activity.aggregate([
+            { 
+              $match: { 
+                userId: participant.userId._id, 
+                fromDate: { $gte: sevenDaysAgo }
+              } 
+            },
+            {
+              $group: { 
+                _id: null, 
+                totalCO2: { $sum: "$totalEmission" } 
+              }
+            }
+          ]);
+  
+          const co2Value = totalFootprint.length > 0 ? totalFootprint[0].totalCO2 : 0;
+  
+          return {
+            username: participant.userId.username || "Unknown User",
+            totalCO2: co2Value,
+            hasData: co2Value > 0 // Flag to identify active participants
+          };
+        })
+      );
+  
+      const processedEntries = userFootprints.filter((entry) => entry !== null);
 
-    // Get CO₂ footprint for all users in the last 7 days
-    const userFootprints = await Activity.aggregate([
-      { $match: { fromDate: { $gte: sevenDaysAgo } } }, // Filter recent activities
-      {
-        $group: {
-          _id: "$userId",
-          totalCO2: { $sum: "$totalEmission" } // ✅ Ensure correct field name
-        }
-      },
-      { $sort: { totalCO2: 1 } } // Sort by least CO₂ footprint
-    ]);
-
-    // Fetch usernames from the User model
-    const leaderboard = await Promise.all(
-      userFootprints.map(async (entry) => {
-        const user = await User.findById(entry._id).select("username");
-        return {
-          userId: entry._id,
-          username: user ? user.username : "Unknown User",
-          totalCO2: entry.totalCO2
-        };
-      })
-    );
-
-    res.json(leaderboard);
-  } catch (err) {
-    console.error("Error fetching leaderboard:", err);
-    res.status(500).json({ message: "Server error" });
-  }
+      // 🟢 PREMIUM SORT LOGIC:
+      // 1. Prioritize users with data (hasData: true)
+      // 2. Secondary sort by CO2 (ascending)
+      processedEntries.sort((a, b) => {
+        if (a.hasData && !b.hasData) return -1;
+        if (!a.hasData && b.hasData) return 1;
+        return a.totalCO2 - b.totalCO2;
+      });
+  
+      res.json(processedEntries);
+    } catch (err) {
+      console.error("Error fetching leaderboard:", err);
+      res.status(500).json({ message: "Server error" });
+    }
 });
+  module.exports = router;  // ✅ This must be at the end!
 
-module.exports = router; // ✅ Ensure the router is exported!

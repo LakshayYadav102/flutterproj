@@ -4,7 +4,7 @@ import './eco_quiz_screen.dart';
 import './eco_runner_screen.dart';
 
 class GamesScreen extends StatelessWidget {
-  const GamesScreen({Key? key}) : super(key: key);
+  const GamesScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -47,7 +47,7 @@ class GamesScreen extends StatelessWidget {
         style: TextStyle(
           fontSize: 20,
           fontWeight: FontWeight.bold,
-          color: Theme.of(context).colorScheme.onBackground,
+          color: Theme.of(context).colorScheme.onSurface,
         ),
       ),
     );

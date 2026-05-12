@@ -1,322 +1,346 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:flutter/animation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../widgets/greenverse_drawer.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  _HomeScreenState createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  String _userName = "Eco Warrior";
+  String? _userId;
+
+  // --- NEW: Animated Quotes Logic ---
+  final List<String> _ecoQuotes = [
+    "\"The Earth is what we all have in common.\"",
+    "\"There is no planet B.\"",
+    "\"Small acts, when multiplied by millions, transform the world.\"",
+    "\"Be the change you wish to see in the world.\"",
+    "\"Green is the new black.\"",
+  ];
+  int _currentQuoteIndex = 0;
+  Timer? _quoteTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+
+    // Rotate quotes every 4 seconds
+    _quoteTimer = Timer.periodic(const Duration(seconds: 4), (timer) {
+      setState(() {
+        _currentQuoteIndex = (_currentQuoteIndex + 1) % _ecoQuotes.length;
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _quoteTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadUserData() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _userName = prefs.getString('username') ?? "Eco Warrior";
+      _userId = prefs.getString('userId');
+    });
+  }
+
+  Future<void> _launchARVR() async {
+    final Uri url = Uri.parse('https://greenversear.netlify.app/');
+    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not launch AR/VR module')),
+      );
+    }
+  }
+
+  void _navigateToModule(String routeName) {
+    if (routeName == '/dashboard') {
+      Navigator.pushNamed(context, routeName, arguments: {'userId': _userId});
+    } else {
+      Navigator.pushNamed(context, routeName);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final screenHeight = MediaQuery.of(context).size.height;
-    final screenWidth = MediaQuery.of(context).size.width;
-
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-        image: DecorationImage(
-                image: AssetImage('assets/images/home.jpg'), // Add your image
-                fit: BoxFit.cover,
-                colorFilter: ColorFilter.mode(
-                  Colors.black.withOpacity(0.2),
-                  BlendMode.darken,
-                ),
-              ),
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color(0xFFE1F5FE),
-              Color(0xFFB3E5FC),
-              Color(0xFF81D4FA),
-            ],
-          ),
+      backgroundColor: const Color(0xFFF4F7F6), // Premium off-white
+      appBar: AppBar(
+        title: const Text(
+          "GreenVerse",
+          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
         ),
-        child: Stack(
+        backgroundColor: Colors.green[800],
+        iconTheme: const IconThemeData(color: Colors.white),
+        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.account_balance_wallet),
+            onPressed: () => Navigator.pushNamed(context, '/wallet'),
+          ),
+        ],
+      ),
+      drawer: const GreenverseDrawer(),
+      body: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Animated Background Elements
-            Positioned(
-              top: screenHeight * 0.15,
-              left: -screenWidth * 0.2,
-              child: _AnimatedLeaf(size: screenWidth * 0.5),
-            ),
-            Positioned(
-              bottom: screenHeight * 0.1,
-              right: -screenWidth * 0.15,
-              child: _AnimatedLeaf(size: screenWidth * 0.4, reverse: true),
-            ),
-
-            // Main Content
-            Padding(
-              padding: EdgeInsets.all(24.0),
+            // Welcome Header
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 20),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Colors.green[800]!, Colors.green[600]!],
+                ),
+                borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(40),
+                  bottomRight: Radius.circular(40),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.green.withOpacity(0.3),
+                    blurRadius: 15,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Animated Logo
-                  _LogoAnimation(
-                    child: Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(20),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.1),
-                            blurRadius: 20,
-                            spreadRadius: 2,
-                          )
-                        ],
-                        color: Colors.white,
+                  Text(
+                    "Welcome back,",
+                    style: TextStyle(
+                      color: Colors.green[100],
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    _userName,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 32,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 1.1,
+                    ),
+                  ),
+                  const SizedBox(height: 25),
+
+                  // ✅ NEW: Beautiful Animated Quote Switcher
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 15,
+                      vertical: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(15),
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.3),
+                        width: 1,
                       ),
-                      child: ClipRRect(
-                            borderRadius: BorderRadius.circular(20),
-                            child: AspectRatio(
-                        aspectRatio: 1,
-                        child: Padding(
-                          padding: EdgeInsets.all(25.0),
-                          child: Image.asset(
-                            'assets/images/logo.png',
-                            fit: BoxFit.contain,
-                            errorBuilder: (context, error, stackTrace) => Icon(Icons.eco_rounded),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.format_quote,
+                          color: Colors.white54,
+                          size: 20,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 800),
+                            transitionBuilder: (
+                              Widget child,
+                              Animation<double> animation,
+                            ) {
+                              return FadeTransition(
+                                opacity: animation,
+                                child: child,
+                              );
+                            },
+                            child: Text(
+                              _ecoQuotes[_currentQuoteIndex],
+                              key: ValueKey<int>(_currentQuoteIndex),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 13,
+                                fontStyle: FontStyle.italic,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
+                      ],
                     ),
-                  ),
-                  ),
-
-                  SizedBox(height: 40),
-
-                  // Title
-                  ShaderMask(
-                    shaderCallback: (bounds) => LinearGradient(
-                      colors: [Color(0xFF1B5E20), Color(0xFF4CAF50)],
-                    ).createShader(bounds),
-                    child: Text(
-                      "Welcome to GreenTrail",
-                      style: TextStyle(
-                        fontSize: 32,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-
-                  SizedBox(height: 20),
-
-                  // Subtitle
-                  Text(
-                    "Your journey towards a sustainable future begins here. "
-                    "Track, reduce, and offset your carbon footprint with ease.",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.grey[800],
-                      height: 1.5,
-                    ),
-                  ),
-
-                  SizedBox(height: 40),
-
-                  // Buttons
-                  _AnimatedButton(
-                    onPressed: () => Navigator.pushNamed(context, '/login'),
-                    text: "Continue Your Journey",
-                    icon: Icons.login_rounded,
-                  ),
-                  SizedBox(height: 20),
-                  _AnimatedButton(
-                    onPressed: () => Navigator.pushNamed(context, '/register'),
-                    text: "Start New Adventure",
-                    icon: Icons.app_registration_rounded,
-                    isSecondary: true,
                   ),
                 ],
               ),
             ),
+
+            const SizedBox(height: 25),
+
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20.0),
+              child: Text(
+                "Explore Modules",
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey[800],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 15),
+
+            // Modules Grid
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: GridView.count(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisCount: 2,
+                crossAxisSpacing: 16,
+                mainAxisSpacing: 16,
+                childAspectRatio: 0.9, // Slightly taller for breathing room
+                children: [
+                  _buildModuleCard(
+                    title: "GreenTrail",
+                    subtitle: "Carbon Tracker",
+                    icon: Icons.eco,
+                    colors: [Colors.green[400]!, Colors.green[800]!],
+                    onTap: () => _navigateToModule('/dashboard'),
+                  ),
+                  _buildModuleCard(
+                    title: "EcoStore",
+                    subtitle: "Redeem Coins",
+                    icon: Icons.shopping_bag,
+                    colors: [Colors.teal[400]!, Colors.teal[800]!],
+                    onTap: () => _navigateToModule('/store'),
+                  ),
+                  _buildModuleCard(
+                    title: "Food Rescue",
+                    subtitle: "Zero Waste",
+                    icon: Icons.restaurant,
+                    colors: [Colors.orange[400]!, Colors.deepOrange[800]!],
+                    onTap: () => _navigateToModule('/food-waste'),
+                  ),
+                  _buildModuleCard(
+                    title: "Carpooling",
+                    subtitle: "Share Rides",
+                    icon: Icons.directions_car,
+                    colors: [Colors.blue[400]!, Colors.blue[800]!],
+                    onTap: () => _navigateToModule('/carpool'),
+                  ),
+                  _buildModuleCard(
+                    title: "GreenStream",
+                    subtitle: "Shorts & Ed",
+                    icon: Icons.video_library,
+                    colors: [Colors.purple[400]!, Colors.deepPurple[800]!],
+                    onTap: () => _navigateToModule('/ecolearn/feed'),
+                  ),
+                  _buildModuleCard(
+                    title: "GreenScan",
+                    subtitle: "Immersive Tech",
+                    icon: Icons.view_in_ar,
+                    colors: [Colors.redAccent[400]!, Colors.red[800]!],
+                    onTap: _launchARVR,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 40),
           ],
         ),
       ),
     );
   }
-}
 
-class _AnimatedLeaf extends StatefulWidget {
-  final double size;
-  final bool reverse;
-
-  _AnimatedLeaf({required this.size, this.reverse = false});
-
-  @override
-  __AnimatedLeafState createState() => __AnimatedLeafState();
-}
-
-class __AnimatedLeafState extends State<_AnimatedLeaf>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: Duration(seconds: widget.reverse ? 8 : 10),
-    )..repeat(reverse: true);
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return RotationTransition(
-      turns: Tween(begin: 0.0, end: 0.25).animate(_controller),
-      child: Opacity(
-        opacity: 0.15,
-        child: Icon(
-          Icons.spa_rounded,
-          size: widget.size,
-          color: Colors.white,
-        ),
-      ),
-    );
-  }
-}
-
-class _LogoAnimation extends StatefulWidget {
-  final Widget child;
-
-  _LogoAnimation({required this.child});
-
-  @override
-  __LogoAnimationState createState() => __LogoAnimationState();
-}
-
-class __LogoAnimationState extends State<_LogoAnimation>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _animation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: Duration(seconds: 4),
-    )..repeat(reverse: true);
-
-    _animation = Tween<double>(begin: -0.02, end: 0.02).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _animation,
-      builder: (context, child) {
-        return Transform.translate(
-          offset: Offset(0, _animation.value * 20),
-          child: child,
-        );
-      },
-      child: widget.child,
-    );
-  }
-}
-
-class _AnimatedButton extends StatefulWidget {
-  final VoidCallback onPressed;
-  final String text;
-  final IconData icon;
-  final bool isSecondary;
-
-  _AnimatedButton({
-    required this.onPressed,
-    required this.text,
-    required this.icon,
-    this.isSecondary = false,
-  });
-
-  @override
-  __AnimatedButtonState createState() => __AnimatedButtonState();
-}
-
-class __AnimatedButtonState extends State<_AnimatedButton>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _scaleAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(
-      vsync: this,
-      duration: Duration(milliseconds: 200),
-    );
-
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 0.95).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => _controller.forward(),
-      onExit: (_) => _controller.reverse(),
-      child: ScaleTransition(
-        scale: _scaleAnimation,
-        child: Container(
-          width: double.infinity,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            gradient: widget.isSecondary
-                ? LinearGradient(
-                    colors: [Colors.white, Colors.grey[100]!],
-                  )
-                : LinearGradient(
-                    colors: [Color(0xFF1B5E20), Color(0xFF4CAF50)],
-                  ),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 10,
-                offset: Offset(0, 4),
-              )
-            ],
+  // ✅ NEW: Premium Module Cards with rich gradients and overflow fixes
+  Widget _buildModuleCard({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required List<Color> colors,
+    required VoidCallback onTap,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(25),
+        boxShadow: [
+          BoxShadow(
+            color: colors[1].withOpacity(0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 6),
           ),
-          child: ElevatedButton(
-            onPressed: widget.onPressed,
-            style: ElevatedButton.styleFrom(
-             backgroundColor: Colors.transparent,
-              shadowColor: Colors.transparent,
-              padding: EdgeInsets.symmetric(vertical: 18),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(25),
+          splashColor: Colors.white.withOpacity(0.2),
+          highlightColor: Colors.white.withOpacity(0.1),
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(25),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: colors,
               ),
             ),
-            child: Row(
+            padding: const EdgeInsets.all(20),
+            child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(widget.icon,
-                    color: widget.isSecondary ? Colors.green[800] : Colors.white),
-                SizedBox(width: 12),
-                Text(
-                  widget.text,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: widget.isSecondary ? Colors.green[800] : Colors.white,
+                Container(
+                  padding: const EdgeInsets.all(15),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, color: Colors.white, size: 38),
+                ),
+                const Spacer(),
+                // ✅ FIXED OVERFLOW: FittedBox forces text to shrink instead of overflowing
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.8),
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
               ],

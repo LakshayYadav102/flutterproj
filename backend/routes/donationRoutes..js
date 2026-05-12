@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const Donation = require('../models/Donation');
-const Activity = require('../models/activity'); // Assuming you store emissions here
+const Activity = require('../models/activity'); 
+const User = require('../models/user'); // 🟢 Required to update GreenCoins
 
 // Calculate lifetime carbon footprint
 router.get('/lifetime-carbon/:userId', async (req, res) => {
@@ -49,7 +50,24 @@ router.post('/submit-transaction', async (req, res) => {
     });
 
     await donation.save();
-    res.status(201).json({ message: 'Transaction submitted successfully', donation });
+
+    // 🟢 Gamification: Reward GreenCoins for offsetting CO2
+    // Rule: 1 coin per 5kg CO2. 1 Tree = ~21.77kg CO2. 
+    // 21.77 / 5 = ~4.35. We award 4 GreenCoins per tree sponsored!
+    const coinsEarned = Math.max(1, treesSponsored * 4);
+
+    try {
+      await User.findByIdAndUpdate(userId, { $inc: { greenCoins: coinsEarned } });
+      console.log(`🎉 Awarded ${coinsEarned} GreenCoins to user ${userId} for planting ${treesSponsored} trees!`);
+    } catch (rewardError) {
+      console.error("Failed to award coins for donation:", rewardError);
+    }
+
+    res.status(201).json({ 
+      message: 'Transaction submitted successfully', 
+      donation,
+      coinsEarned 
+    });
   } catch (err) {
     console.error('Transaction submission failed:', err);
     res.status(500).json({ error: 'Transaction submission failed' });
@@ -60,7 +78,7 @@ router.post('/submit-transaction', async (req, res) => {
 router.get('/history/:userId', async (req, res) => {
   try {
     const donations = await Donation.find({ user: req.params.userId }).sort({ date: -1 });
-    res.json({ donations }); // Wrap in object to match frontend expectation
+    res.json({ donations }); 
   } catch (err) {
     console.error('Error fetching donation history:', err);
     res.status(500).json({ error: 'Failed to fetch donation history' });

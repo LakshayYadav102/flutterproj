@@ -15,7 +15,7 @@ class TrashItem {
 }
 
 class RecycleRushScreen extends StatefulWidget {
-  const RecycleRushScreen({Key? key}) : super(key: key);
+  const RecycleRushScreen({super.key});
 
   @override
   _RecycleRushScreenState createState() => _RecycleRushScreenState();
@@ -78,7 +78,8 @@ class _RecycleRushScreenState extends State<RecycleRushScreen> {
   bool gameOver = false;
   final int maxAttempts = 5;
 
-  void handleDrop(String binType, TrashItem item) {
+  void handleDrop(String binType, DragTargetDetails<TrashItem> details) {
+    TrashItem item = details.data;
     setState(() {
       if (item.type == binType) {
         score += 10;
@@ -222,7 +223,7 @@ class _RecycleRushScreenState extends State<RecycleRushScreen> {
 
   Widget _buildBin(String binType, Color color, String label) {
     return DragTarget<TrashItem>(
-      onAccept: (item) => handleDrop(binType, item),
+      onAcceptWithDetails: (item) => handleDrop(binType, item),
       builder: (context, candidateData, rejectedData) {
         return Container(
           width: 100,

@@ -42,7 +42,7 @@ class Particle {
 }
 
 class EcoRunnerScreen extends StatefulWidget {
-  const EcoRunnerScreen({Key? key}) : super(key: key);
+  const EcoRunnerScreen({super.key});
 
   @override
   _EcoRunnerScreenState createState() => _EcoRunnerScreenState();

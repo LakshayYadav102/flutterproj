@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,257 +6,332 @@ import 'package:image_picker/image_picker.dart';
 import '../api/api_service.dart';
 
 class ProfileScreen extends StatefulWidget {
+  const ProfileScreen({super.key});
+
   @override
   _ProfileScreenState createState() => _ProfileScreenState();
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  TextEditingController usernameController = TextEditingController();
-  TextEditingController mobileController = TextEditingController();
-  TextEditingController dobController = TextEditingController();
-  TextEditingController addressController = TextEditingController();
-  String? profilePic;
-  bool isLoading = false;
-  String? token;
+  bool _isLoading = true;
+  bool _isSaving = false;
+  bool _isUploading = false;
+
+  Map<String, dynamic>? _user;
+  String? _profilePic;
+  String? _token;
+
+  final _usernameController = TextEditingController();
+  final _mobileController = TextEditingController();
+  final _dobController = TextEditingController();
+  final _addressController = TextEditingController();
+
+  final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
     super.initState();
-    _loadToken();
+    _fetchProfile();
   }
 
-  Future<void> _loadToken() async {
+  Future<void> _fetchProfile() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    token = prefs.getString('token');
-    if (token != null) {
-      _fetchUserProfile();
-    } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Authentication token not found")));
-    }
-  }
+    _token = prefs.getString('token');
 
-  Future<void> _fetchUserProfile() async {
-    setState(() => isLoading = true);
+    if (_token == null) return;
 
     try {
       final response = await http.get(
-        Uri.parse("${ApiService.baseUrl}/api/profile"),
-        headers: {"Authorization": "Bearer $token"},
+        Uri.parse('${ApiService.baseUrl}/api/profile'),
+        headers: {'Authorization': 'Bearer $_token'},
       );
 
       if (response.statusCode == 200) {
-        final userData = jsonDecode(response.body);
+        final data = jsonDecode(response.body);
         setState(() {
-          usernameController.text = userData['username'];
-          mobileController.text = userData['mobile'] ?? "";
-          dobController.text =
-              userData['dob'] ?? ""; // Server returns "YYYY-MM-DD"
-          addressController.text = userData['address'] ?? "";
-          profilePic =
-              userData['profilePic'] != null
-                  ? "${ApiService.baseUrl}${userData['profilePic']}"
-                  : null;
+          _user = data;
+          _usernameController.text = data['username'] ?? '';
+          _mobileController.text = data['mobile'] ?? '';
+          _dobController.text =
+              data['dob'] != null ? data['dob'].toString().split('T')[0] : '';
+          _addressController.text = data['address'] ?? '';
+
+          if (data['profilePic'] != null) {
+            String picUrl = data['profilePic'];
+            _profilePic =
+                picUrl.startsWith('http')
+                    ? picUrl
+                    : '${ApiService.baseUrl}$picUrl';
+          }
+          _isLoading = false;
         });
-      } else {
-        throw Exception("Failed to load profile");
       }
     } catch (e) {
-      print("Error fetching profile: $e");
-    } finally {
-      setState(() => isLoading = false);
+      _showSnackBar("Failed to load profile", isError: true);
+      setState(() => _isLoading = false);
     }
   }
 
   Future<void> _updateProfile() async {
-    setState(() => isLoading = true);
-
+    setState(() => _isSaving = true);
     try {
       final response = await http.put(
-        Uri.parse("${ApiService.baseUrl}/api/profile"),
+        Uri.parse('${ApiService.baseUrl}/api/profile'),
         headers: {
-          "Authorization": "Bearer $token",
-          "Content-Type": "application/json",
+          'Authorization': 'Bearer $_token',
+          'Content-Type': 'application/json',
         },
         body: jsonEncode({
-          "username": usernameController.text,
-          "mobile": mobileController.text,
-          "dob": dobController.text, // Now formatted as "YYYY-MM-DD"
-          "address": addressController.text,
+          'username': _usernameController.text,
+          'mobile': _mobileController.text,
+          'dob': _dobController.text,
+          'address': _addressController.text,
         }),
       );
 
-      print("Response Code: ${response.statusCode}");
-      print("Response Body: ${response.body}");
-
       if (response.statusCode == 200) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Profile updated successfully")));
+        _showSnackBar("Profile updated successfully!");
+        _fetchProfile();
       } else {
-        throw Exception("Failed to update profile: ${response.body}");
+        _showSnackBar("Failed to update profile", isError: true);
       }
     } catch (e) {
-      print("Error updating profile: $e");
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Failed to update profile")));
+      _showSnackBar("Network error.", isError: true);
     } finally {
-      setState(() => isLoading = false);
+      setState(() => _isSaving = false);
     }
   }
 
   Future<void> _uploadProfilePic() async {
-    final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+    final XFile? image = await _picker.pickImage(source: ImageSource.gallery);
+    if (image == null || _token == null) return;
 
-    if (pickedFile == null) return;
-
-    File imageFile = File(pickedFile.path);
-    var request = http.MultipartRequest(
-      "POST",
-      Uri.parse("${ApiService.baseUrl}/api/profile/upload"),
-    );
-    request.headers["Authorization"] = "Bearer $token";
-    request.files.add(
-      await http.MultipartFile.fromPath("profilePic", imageFile.path),
-    );
+    setState(() => _isUploading = true);
 
     try {
-      final response = await request.send();
+      var request = http.MultipartRequest(
+        'POST',
+        Uri.parse('${ApiService.baseUrl}/api/profile/upload'),
+      );
+      request.headers.addAll({'Authorization': 'Bearer $_token'});
+      request.files.add(
+        await http.MultipartFile.fromPath('profilePic', image.path),
+      );
+
+      var response = await request.send();
       if (response.statusCode == 200) {
-        final responseData = jsonDecode(await response.stream.bytesToString());
+        final resData = await response.stream.bytesToString();
+        final data = jsonDecode(resData);
         setState(() {
-          profilePic = "${ApiService.baseUrl}${responseData['profilePic']}";
+          String picUrl = data['profilePic'];
+          _profilePic =
+              picUrl.startsWith('http')
+                  ? picUrl
+                  : '${ApiService.baseUrl}$picUrl';
         });
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Profile picture updated")));
+        _showSnackBar("Profile picture updated!");
       } else {
-        throw Exception("Failed to upload profile picture");
+        _showSnackBar("Failed to upload image", isError: true);
       }
     } catch (e) {
-      print("Error uploading profile picture: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Failed to upload profile picture")),
-      );
+      _showSnackBar("Network error during upload", isError: true);
+    } finally {
+      setState(() => _isUploading = false);
     }
   }
 
-  Future<void> _selectDate() async {
-    DateTime? pickedDate = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime(1900),
-      lastDate: DateTime.now(),
+  void _showSnackBar(String message, {bool isError = false}) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError ? Colors.red : Colors.green,
+      ),
     );
-
-    if (pickedDate != null) {
-      setState(() {
-        dobController.text =
-            "${pickedDate.year}-${pickedDate.month.toString().padLeft(2, '0')}-${pickedDate.day.toString().padLeft(2, '0')}";
-      });
-    }
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text("Profile"),
+          backgroundColor: Colors.green[700],
+        ),
+        body: const Center(
+          child: CircularProgressIndicator(color: Colors.green),
+        ),
+      );
+    }
+
     return Scaffold(
+      backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: Text("User Profile"),
-        backgroundColor: Colors.deepPurple,
+        title: const Text("Your Profile"),
+        backgroundColor: Colors.green[700],
+        elevation: 0,
       ),
-      body:
-          isLoading
-              ? Center(child: CircularProgressIndicator())
-              : Padding(
-                padding: EdgeInsets.all(16.0),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20.0),
+        child: Column(
+          children: [
+            // GreenCoin Card
+            Card(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(15),
+                side: BorderSide(color: Colors.green[300]!, width: 2),
+              ),
+              color: Colors.green[50],
+              child: Padding(
+                padding: const EdgeInsets.all(20),
                 child: Column(
                   children: [
-                    GestureDetector(
-                      onTap: _uploadProfilePic,
-                      child: CircleAvatar(
-                        radius: 50,
-                        backgroundImage:
-                            profilePic != null
-                                ? NetworkImage(profilePic!)
-                                : AssetImage("assets/default-avatar.png")
-                                    as ImageProvider,
-                        child:
-                            profilePic == null
-                                ? Icon(
-                                  Icons.camera_alt,
-                                  size: 40,
-                                  color: Colors.grey,
-                                )
-                                : null,
+                    Text(
+                      "🪙 ${_user?['greenCoins'] ?? 0} GreenCoins",
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.green,
                       ),
                     ),
-                    SizedBox(height: 10),
-                    Text(
-                      "Tap to change profile picture",
-                      style: TextStyle(color: Colors.grey),
+                    const SizedBox(height: 8),
+                    const Text(
+                      "Your universal GreenVerse currency. Earn more by offsetting carbon, sharing rides, and rescuing food!",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.grey, fontSize: 12),
                     ),
-                    SizedBox(height: 20),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
 
-                    // Username
+            // Main Profile Form Card
+            Card(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(15),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  children: [
+                    // Avatar Upload
+                    GestureDetector(
+                      onTap: _uploadProfilePic,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          CircleAvatar(
+                            radius: 60,
+                            backgroundColor: Colors.grey[300],
+                            backgroundImage:
+                                _profilePic != null
+                                    ? NetworkImage(_profilePic!)
+                                    : null,
+                            child:
+                                _profilePic == null
+                                    ? const Icon(
+                                      Icons.person,
+                                      size: 60,
+                                      color: Colors.white,
+                                    )
+                                    : null,
+                          ),
+                          if (_isUploading)
+                            const CircularProgressIndicator(
+                              color: Colors.white,
+                            ),
+                          Positioned(
+                            bottom: 0,
+                            right: 0,
+                            child: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: const BoxDecoration(
+                                color: Colors.green,
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.camera_alt,
+                                color: Colors.white,
+                                size: 20,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      "Tap to update photo",
+                      style: TextStyle(color: Colors.grey, fontSize: 12),
+                    ),
+                    const SizedBox(height: 30),
+
+                    // Form Fields
                     TextField(
-                      controller: usernameController,
-                      decoration: InputDecoration(
+                      controller: _usernameController,
+                      decoration: const InputDecoration(
                         labelText: "Username",
                         border: OutlineInputBorder(),
                       ),
                     ),
-                    SizedBox(height: 10),
-
-                    // Mobile
+                    const SizedBox(height: 15),
                     TextField(
-                      controller: mobileController,
-                      decoration: InputDecoration(
+                      controller: _mobileController,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
                         labelText: "Mobile Number",
                         border: OutlineInputBorder(),
                       ),
                     ),
-                    SizedBox(height: 10),
-
-                    // Date of Birth (with Date Picker)
+                    const SizedBox(height: 15),
                     TextField(
-                      controller: dobController,
-                      decoration: InputDecoration(
-                        labelText: "Date of Birth",
+                      controller: _dobController,
+                      decoration: const InputDecoration(
+                        labelText: "Date of Birth (YYYY-MM-DD)",
                         border: OutlineInputBorder(),
-                        suffixIcon: IconButton(
-                          icon: Icon(Icons.calendar_today),
-                          onPressed: _selectDate, // Open calendar on tap
-                        ),
                       ),
-                      readOnly: true, // Prevent manual typing
                     ),
-                    SizedBox(height: 10),
-
-                    // Address
+                    const SizedBox(height: 15),
                     TextField(
-                      controller: addressController,
-                      decoration: InputDecoration(
+                      controller: _addressController,
+                      maxLines: 2,
+                      decoration: const InputDecoration(
                         labelText: "Address",
                         border: OutlineInputBorder(),
                       ),
-                      maxLines: 3,
                     ),
-                    SizedBox(height: 20),
+                    const SizedBox(height: 30),
 
-                    // Update Profile Button
-                    ElevatedButton(
-                      onPressed: _updateProfile,
-                      child: Text("Save Changes"),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.deepPurple,
+                    // Save Button
+                    SizedBox(
+                      width: double.infinity,
+                      height: 50,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green[700],
+                        ),
+                        onPressed: _isSaving ? null : _updateProfile,
+                        child:
+                            _isSaving
+                                ? const CircularProgressIndicator(
+                                  color: Colors.white,
+                                )
+                                : const Text(
+                                  "Save Changes",
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    color: Colors.white,
+                                  ),
+                                ),
                       ),
                     ),
                   ],
                 ),
               ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

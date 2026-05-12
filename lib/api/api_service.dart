@@ -14,7 +14,7 @@ class ApiService {
 
   // Function to get your local network IP (Manually update if needed)
   static String getLocalIp() {
-    return "192.168.52.131"; // Change this to your actual PC's IP address
+    return "10.249.189.207"; // Change this to your actual PC's IP address
   }
 
   // Register User

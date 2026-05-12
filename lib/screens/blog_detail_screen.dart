@@ -2,197 +2,400 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_html/flutter_html.dart';
 import '../api/api_service.dart';
 
 class BlogDetailScreen extends StatefulWidget {
   final String blogId;
 
-  BlogDetailScreen({required this.blogId});
+  const BlogDetailScreen({super.key, required this.blogId});
 
   @override
   _BlogDetailScreenState createState() => _BlogDetailScreenState();
 }
 
 class _BlogDetailScreenState extends State<BlogDetailScreen> {
-  Map<String, dynamic>? blog;
-  String? token;
-  TextEditingController commentController = TextEditingController();
+  bool _isLoading = true;
+  String _error = '';
+  Map<String, dynamic>? _blog;
+  bool _hasLiked = false;
+  String? _userId;
+
+  final TextEditingController _commentController = TextEditingController();
+  bool _isCommenting = false;
 
   @override
   void initState() {
     super.initState();
-    _loadToken();
-  }
-
-  Future<void> _loadToken() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    token = prefs.getString('token');
-    if (token != null) {
-      _fetchBlog();
-    } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Authentication token not found")));
-    }
+    _fetchBlog();
   }
 
   Future<void> _fetchBlog() async {
-    if (token == null) return;
-
     try {
-      final response = await http.get(
-        Uri.parse("${ApiService.baseUrl}/api/blogs/${widget.blogId}"),
-        headers: {"Authorization": "Bearer $token"},
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      _userId = prefs.getString('userId');
+      String? token = prefs.getString('token');
+
+      final res = await http.get(
+        Uri.parse('${ApiService.baseUrl}/api/blogs/${widget.blogId}'),
+        headers: token != null ? {'Authorization': 'Bearer $token'} : {},
       );
 
-      if (response.statusCode == 200) {
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
         setState(() {
-          blog = jsonDecode(response.body);
+          _blog = data;
+          List<dynamic> likedBy = data['likedBy'] ?? [];
+          _hasLiked = likedBy.contains(_userId);
+          _error = '';
         });
       } else {
-        print("Failed to load blog: ${response.statusCode}");
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Failed to load blog")));
+        setState(
+          () => _error = "Error fetching blog. It might have been deleted.",
+        );
       }
     } catch (e) {
-      print("Error fetching blog: $e");
+      setState(() => _error = "Network error.");
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _handleLike() async {
+    if (_hasLiked) return; // Already liked
+
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? token = prefs.getString('token');
+
+    if (token == null) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text("Error loading blog")));
+      ).showSnackBar(const SnackBar(content: Text("Please log in to like")));
+      return;
     }
-  }
-
-  Future<void> _likeBlog() async {
-    if (token == null) return;
 
     try {
-      final response = await http.put(
-        Uri.parse("${ApiService.baseUrl}/api/blogs/${widget.blogId}/like"),
-        headers: {"Authorization": "Bearer $token"},
+      final res = await http.put(
+        Uri.parse('${ApiService.baseUrl}/api/blogs/${widget.blogId}/like'),
+        headers: {'Authorization': 'Bearer $token'},
       );
 
-      if (response.statusCode == 200) {
-        _fetchBlog();
-      } else {
-        print("Failed to like blog: ${response.statusCode}");
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        setState(() {
+          _blog!['likes'] = data['likes'];
+          _blog!['likedBy'] = data['likedBy'];
+          _hasLiked = true;
+        });
       }
     } catch (e) {
-      print("Error liking blog: $e");
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Failed to like")));
     }
   }
 
-  Future<void> _addComment() async {
-    if (token == null || commentController.text.isEmpty) return;
+  Future<void> _handleComment() async {
+    if (_commentController.text.trim().isEmpty) return;
+
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    String? token = prefs.getString('token');
+
+    if (token == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("Please log in to comment")));
+      return;
+    }
+
+    setState(() => _isCommenting = true);
 
     try {
-      final response = await http.post(
-        Uri.parse("${ApiService.baseUrl}/api/blogs/${widget.blogId}/comment"),
+      final res = await http.post(
+        Uri.parse('${ApiService.baseUrl}/api/blogs/${widget.blogId}/comment'),
         headers: {
-          "Authorization": "Bearer $token",
-          "Content-Type": "application/json",
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
         },
-        body: jsonEncode({"text": commentController.text}),
+        body: jsonEncode({"text": _commentController.text.trim()}),
       );
 
-      if (response.statusCode == 201) {
-        commentController.clear();
-        _fetchBlog();
-      } else {
-        print("Failed to add comment: ${response.statusCode}");
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Failed to add comment")));
+      if (res.statusCode == 200 || res.statusCode == 201) {
+        final data = jsonDecode(res.body);
+        setState(() {
+          _blog!['comments'].add(data['comment']);
+          _commentController.clear();
+        });
       }
     } catch (e) {
-      print("Error adding comment: $e");
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text("Error adding comment")));
+      ).showSnackBar(const SnackBar(content: Text("Failed to post comment")));
+    } finally {
+      setState(() => _isCommenting = false);
+    }
+  }
+
+  String _formatDate(String? dateString) {
+    if (dateString == null) return "";
+    try {
+      DateTime date = DateTime.parse(dateString);
+      List<String> months = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+      ];
+      return "${months[date.month - 1]} ${date.day}, ${date.year}";
+    } catch (e) {
+      return "";
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (blog == null) {
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator(color: Colors.green)),
+      );
+    }
+    if (_error.isNotEmpty) {
       return Scaffold(
-        appBar: AppBar(
-          title: Text("Loading..."),
-          backgroundColor: Colors.deepPurple,
+        appBar: AppBar(backgroundColor: Colors.green[800]),
+        body: Center(
+          child: Text(_error, style: const TextStyle(color: Colors.red)),
         ),
-        body: Center(child: CircularProgressIndicator()),
       );
     }
 
-    String author = blog!['author']?['username'] ?? "Unknown";
-    int likes = blog!['likes'] is int ? blog!['likes'] : 0;
-    int views = blog!['views'] is int ? blog!['views'] : 0;
-    List<dynamic> comments = blog!['comments'] is List ? blog!['comments'] : [];
+    final authorName = _blog!['author']?['username'] ?? "Eco Warrior";
+    final comments = _blog!['comments'] as List<dynamic>? ?? [];
 
     return Scaffold(
+      backgroundColor: Colors.white,
       appBar: AppBar(
-        title: Text(blog!['title'] ?? "Blog"),
-        backgroundColor: Colors.deepPurple,
+        title: const Text("The Eco Journal"),
+        backgroundColor: Colors.green[800],
+        elevation: 0,
       ),
-      body: Padding(
-        padding: EdgeInsets.all(16.0),
+      body: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              "By $author",
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            // Cover Image
+            Image.network(
+              "https://picsum.photos/seed/${_blog!['_id']}/1200/600",
+              width: double.infinity,
+              height: 250,
+              fit: BoxFit.cover,
             ),
-            SizedBox(height: 5),
-            Text("$views Views", style: TextStyle(color: Colors.grey)),
-            Divider(),
-            Text(blog!['content'] ?? "No content available"),
-            Divider(),
-            Row(
-              children: [
-                IconButton(
-                  icon: Icon(Icons.thumb_up, color: Colors.blue),
-                  onPressed: _likeBlog,
-                ),
-                Text("$likes Likes"),
-              ],
-            ),
-            Divider(),
-            Text(
-              "Comments",
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            Expanded(
-              child:
-                  comments.isNotEmpty
-                      ? ListView.builder(
-                        itemCount: comments.length,
-                        itemBuilder: (context, index) {
-                          var comment = comments[index];
-                          String username =
-                              comment is Map && comment['user'] is Map
-                                  ? (comment['user']['username'] ?? "Anonymous")
-                                  : "Anonymous";
-                          return ListTile(
-                            title: Text(
-                              comment is Map
-                                  ? (comment['text'] ?? "No comment text")
-                                  : "No comment text",
+
+            Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Title & Meta
+                  Text(
+                    _blog!['title'] ?? 'Untitled',
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      height: 1.2,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      CircleAvatar(
+                        backgroundColor: Colors.green,
+                        child: Text(
+                          authorName.substring(0, 1).toUpperCase(),
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                      ),
+                      const SizedBox(width: 15),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            authorName,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
                             ),
-                            subtitle: Text("By $username"),
-                          );
-                        },
-                      )
-                      : Center(child: Text("No comments yet")),
-            ),
-            TextField(
-              controller: commentController,
-              decoration: InputDecoration(
-                labelText: "Add a comment...",
-                suffixIcon: IconButton(
-                  icon: Icon(Icons.send),
-                  onPressed: _addComment,
-                ),
+                          ),
+                          Text(
+                            "${_formatDate(_blog!['createdAt'])} · ${_blog!['views'] ?? 0} Views",
+                            style: const TextStyle(
+                              color: Colors.grey,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  const Divider(),
+
+                  // Blog Content (Renders HTML if provided from ReactQuill)
+                  Html(
+                    data: _blog!['content'] ?? "No content",
+                    style: {
+                      "body": Style(
+                        fontSize: FontSize(16),
+                        lineHeight: const LineHeight(1.6),
+                      ),
+                      "p": Style(margin: Margins.only(bottom: 15)),
+                    },
+                  ),
+
+                  const SizedBox(height: 30),
+
+                  // Like Button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                            _hasLiked ? Colors.green[100] : Colors.green[800],
+                        foregroundColor:
+                            _hasLiked ? Colors.green[800] : Colors.white,
+                        elevation: _hasLiked ? 0 : 2,
+                      ),
+                      onPressed: _hasLiked ? null : _handleLike,
+                      icon: Icon(
+                        _hasLiked ? Icons.favorite : Icons.favorite_border,
+                      ),
+                      label: Text(
+                        _hasLiked
+                            ? "Liked (${_blog!['likes']})"
+                            : "Applaud this story (${_blog!['likes']})",
+                        style: const TextStyle(fontSize: 16),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 30),
+                  const Divider(),
+                  const SizedBox(height: 20),
+
+                  // Comments Section
+                  Text(
+                    "Responses (${comments.length})",
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  // Comment Input
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _commentController,
+                          maxLines: 3,
+                          decoration: InputDecoration(
+                            hintText: "What are your thoughts?",
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            contentPadding: const EdgeInsets.all(15),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      IconButton(
+                        icon:
+                            _isCommenting
+                                ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.green,
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                                : const Icon(
+                                  Icons.send,
+                                  color: Colors.green,
+                                  size: 30,
+                                ),
+                        onPressed: _isCommenting ? null : _handleComment,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 30),
+
+                  // Comment List
+                  ...comments.map((c) {
+                    final cAuthor = c['user']?['username'] ?? "Anonymous";
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 20),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CircleAvatar(
+                            radius: 16,
+                            backgroundColor: Colors.grey[300],
+                            child: Text(
+                              cAuthor.substring(0, 1).toUpperCase(),
+                              style: const TextStyle(
+                                color: Colors.black87,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 15),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      cAuthor,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    Text(
+                                      _formatDate(c['timestamp']),
+                                      style: const TextStyle(
+                                        color: Colors.grey,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 5),
+                                Text(
+                                  c['text'] ?? "",
+                                  style: const TextStyle(height: 1.4),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
               ),
             ),
           ],
